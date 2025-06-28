@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- 
+    =============================================================================
+    FOREGROUND LOCATION PLUGIN - ANDROID MANIFEST CONFIGURATION
+    =============================================================================
+    
+    This is an example AndroidManifest.xml configuration for apps using the
+    Foreground Location Plugin. Copy the relevant sections to your app's
+    android/app/src/main/AndroidManifest.xml file.
+    
+    IMPORTANT: This example shows the complete configuration. You should merge
+    these permissions and service declarations with your existing manifest.
+    =============================================================================
+    -->
+
+    <!-- ========================================================================= -->
+    <!-- REQUIRED PERMISSIONS FOR FOREGROUND LOCATION SERVICE -->
+    <!-- ========================================================================= -->
+
+    <!-- Basic location permissions - Required for all location access -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Foreground service permissions - Required for Android 9.0+ -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    
+    <!-- Location foreground service type - Required for Android 14+ -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <!-- Background location permission - Required for Android 10+ background tracking -->
+    <!-- 
+    Note: This requires special approval from Google Play Console for most app categories.
+    Make sure your app meets Google's background location policy requirements.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <!-- Notification permission - Required for Android 13+ -->
+    <!-- This is needed to show the persistent notification for the foreground service -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Internet and network permissions - Required for Google Play Services -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Optional: Wake lock permission for keeping service alive -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- ========================================================================= -->
+    <!-- HARDWARE REQUIREMENTS -->
+    <!-- ========================================================================= -->
+
+    <!-- Specify that the app requires location hardware -->
+    <uses-feature
+        android:name="android.hardware.location"
+        android:required="true" />
+    
+    <!-- GPS is required for high accuracy location -->
+    <uses-feature
+        android:name="android.hardware.location.gps"
+        android:required="true" />
+
+    <!-- Network location is required for assisted GPS -->
+    <uses-feature
+        android:name="android.hardware.location.network"
+        android:required="false" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:theme="@style/AppTheme"
+        android:usesCleartextTraffic="true">
+
+        <!-- ===================================================================== -->
+        <!-- FOREGROUND LOCATION SERVICE DECLARATION -->
+        <!-- ===================================================================== -->
+        
+        <!-- 
+        This service declaration is REQUIRED for the foreground location plugin.
+        Make sure to add this exactly as shown below.
+        -->
+        <service
+            android:name="in.xconcepts.foreground.location.LocationForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location"
+            android:stopWithTask="false">
+            
+            <!-- Optional: Service metadata -->
+            <meta-data
+                android:name="description"
+                android:value="Foreground service for continuous location tracking" />
+        </service>
+
+        <!-- ===================================================================== -->
+        <!-- YOUR EXISTING APP COMPONENTS -->
+        <!-- ===================================================================== -->
+
+        <!-- Your main activity -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/LaunchTheme">
+            
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- ===================================================================== -->
+        <!-- OPTIONAL: CUSTOM NOTIFICATION ICON -->
+        <!-- ===================================================================== -->
+
+        <!-- 
+        If you want to use a custom icon for the location notification,
+        add your icon to android/app/src/main/res/drawable/ and reference it
+        in the plugin configuration.
+        -->
+
+        <!-- ===================================================================== -->
+        <!-- OPTIONAL: BATTERY OPTIMIZATION EXEMPTION -->
+        <!-- ===================================================================== -->
+
+        <!-- 
+        For critical location tracking apps, you might want to request battery
+        optimization exemption. However, use this sparingly as it affects user experience.
+        -->
+        <!-- 
+        <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+        -->
+
+        <!-- ===================================================================== -->
+        <!-- GOOGLE PLAY SERVICES METADATA -->
+        <!-- ===================================================================== -->
+
+        <!-- Google Play Services version -->
+        <meta-data
+            android:name="com.google.android.gms.version"
+            android:value="@integer/google_play_services_version" />
+
+    </application>
+
+</manifest>
+
+<!-- 
+=============================================================================
+IMPORTANT NOTES FOR DEVELOPERS:
+=============================================================================
+
+1. PERMISSION POLICY COMPLIANCE:
+   - ACCESS_BACKGROUND_LOCATION requires special approval from Google Play
+   - Your app must have a clear use case for background location
+   - Provide detailed justification in Play Console
+
+2. ANDROID VERSION COMPATIBILITY:
+   - API 23+: Runtime permissions required
+   - API 26+: Foreground service limitations
+   - API 29+: Background location separate permission
+   - API 33+: Notification permission required
+   - API 34+: Foreground service type required
+
+3. TESTING CONSIDERATIONS:
+   - Test on different Android versions
+   - Test battery optimization scenarios
+   - Test permission denial and re-request flows
+   - Test app restart and service persistence
+
+4. BATTERY OPTIMIZATION:
+   - Users may need to whitelist your app from battery optimization
+   - Provide clear instructions in your app
+   - Consider implementing detection and guidance
+
+5. NOTIFICATION REQUIREMENTS:
+   - Foreground service MUST show persistent notification
+   - Notification cannot be dismissed by user while service runs
+   - Provide clear, user-friendly notification text
+
+6. LOCATION ACCURACY:
+   - HIGH_ACCURACY uses GPS (high battery usage)
+   - BALANCED_POWER uses network + GPS (moderate battery)
+   - LOW_POWER uses network only (low battery)
+   - Choose based on your app's needs
+
+7. PLAY STORE REQUIREMENTS:
+   - Apps using background location need policy compliance
+   - Provide privacy policy explaining location usage
+   - Implement proper location data handling
+   - Consider data retention and deletion policies
+
+=============================================================================
+EXAMPLE GRADLE DEPENDENCIES:
+=============================================================================
+
+Add these to your android/app/build.gradle dependencies section:
+
+dependencies {
+    // Google Play Services Location
+    implementation 'com.google.android.gms:play-services-location:21.0.1'
+    
+    // LocalBroadcastManager (if not already included)
+    implementation 'androidx.localbroadcastmanager:localbroadcastmanager:1.1.0'
+    
+    // ... your other dependencies
+}
+
+=============================================================================
+-->

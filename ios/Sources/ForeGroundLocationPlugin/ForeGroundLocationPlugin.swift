@@ -1,23 +1,86 @@
 import Foundation
 import Capacitor
+import CoreLocation
 
 /**
- * Please read the Capacitor iOS Plugin Development Guide
- * here: https://capacitorjs.com/docs/plugins/ios
+ * Foreground Location Plugin for iOS
+ * Limited iOS implementation - Foreground service pattern not available
  */
 @objc(ForeGroundLocationPlugin)
 public class ForeGroundLocationPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "ForeGroundLocationPlugin"
     public let jsName = "ForeGroundLocation"
     public let pluginMethods: [CAPPluginMethod] = [
-        CAPPluginMethod(name: "echo", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "checkPermissions", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "requestPermissions", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startForegroundLocationService", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopForegroundLocationService", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "isServiceRunning", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getCurrentLocation", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "updateLocationSettings", returnType: CAPPluginReturnPromise)
     ]
+    
     private let implementation = ForeGroundLocation()
 
-    @objc func echo(_ call: CAPPluginCall) {
-        let value = call.getString("value") ?? ""
+    @objc override public func checkPermissions(_ call: CAPPluginCall) {
+        let locationManager = CLLocationManager()
+        let authStatus = locationManager.authorizationStatus
+        
+        let permissionState: String
+        switch authStatus {
+        case .notDetermined:
+            permissionState = "prompt"
+        case .denied, .restricted:
+            permissionState = "denied"
+        case .authorizedWhenInUse, .authorizedAlways:
+            permissionState = "granted"
+        @unknown default:
+            permissionState = "prompt"
+        }
+        
         call.resolve([
-            "value": implementation.echo(value)
+            "location": permissionState,
+            "backgroundLocation": permissionState == "granted" && authStatus == .authorizedAlways ? "granted" : "denied",
+            "notifications": "denied"
         ])
+    }
+
+    @objc override public func requestPermissions(_ call: CAPPluginCall) {
+        call.unimplemented("Foreground location service not fully supported on iOS. Use background location modes in iOS instead.")
+    }
+
+    @objc func startForegroundLocationService(_ call: CAPPluginCall) {
+        call.unimplemented("Foreground location service pattern not available on iOS. Use iOS background location modes instead.")
+    }
+
+    @objc func stopForegroundLocationService(_ call: CAPPluginCall) {
+        call.unimplemented("Foreground location service pattern not available on iOS.")
+    }
+
+    @objc func isServiceRunning(_ call: CAPPluginCall) {
+        call.resolve(["isRunning": false])
+    }
+
+    @objc func getCurrentLocation(_ call: CAPPluginCall) {
+        implementation.getCurrentLocation { result in
+            switch result {
+            case .success(let location):
+                call.resolve([
+                    "latitude": location.coordinate.latitude,
+                    "longitude": location.coordinate.longitude,
+                    "accuracy": location.horizontalAccuracy,
+                    "altitude": location.altitude,
+                    "bearing": location.course >= 0 ? location.course : nil,
+                    "speed": location.speed >= 0 ? location.speed : nil,
+                    "timestamp": ISO8601DateFormatter().string(from: location.timestamp)
+                ])
+            case .failure(let error):
+                call.reject("Location error: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    @objc func updateLocationSettings(_ call: CAPPluginCall) {
+        call.unimplemented("Location service settings not supported on iOS.")
     }
 }
