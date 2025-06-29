@@ -3,7 +3,8 @@ import { WebPlugin } from '@capacitor/core';
 import type {
   ForeGroundLocationPlugin,
   LocationPermissionStatus,
-  LocationResult
+  LocationResult,
+  ApiServiceStatus
 } from './definitions';
 
 export class ForeGroundLocationWeb extends WebPlugin implements ForeGroundLocationPlugin {
@@ -105,5 +106,17 @@ export class ForeGroundLocationWeb extends WebPlugin implements ForeGroundLocati
 
   async updateLocationSettings(): Promise<void> {
     throw this.unimplemented('Location service settings not supported on web.');
+  }
+
+  async getApiServiceStatus(): Promise<ApiServiceStatus> {
+    throw this.unimplemented('API service not supported on web.');
+  }
+
+  async clearApiBuffers(): Promise<void> {
+    throw this.unimplemented('API service not supported on web.');
+  }
+
+  async resetApiCircuitBreaker(): Promise<void> {
+    throw this.unimplemented('API service not supported on web.');
   }
 }

@@ -47,6 +47,24 @@ export interface ForeGroundLocationPlugin {
   updateLocationSettings(options: LocationServiceOptions): Promise<void>;
 
   /**
+   * Get API service status
+   * @since 1.0.0
+   */
+  getApiServiceStatus(): Promise<ApiServiceStatus>;
+
+  /**
+   * Clear API service buffers
+   * @since 1.0.0
+   */
+  clearApiBuffers(): Promise<void>;
+
+  /**
+   * Reset API service circuit breaker
+   * @since 1.0.0
+   */
+  resetApiCircuitBreaker(): Promise<void>;
+
+  /**
    * Listen for location updates
    * @since 1.0.0
    */
@@ -120,6 +138,59 @@ export interface LocationServiceOptions {
    * Minimum distance in meters to trigger update
    */
   distanceFilter?: number;
+
+  /**
+   * API service configuration (optional)
+   * If provided, location data will be sent to the specified API endpoint in batches
+   */
+  api?: ApiServiceConfig;
+}
+
+export interface ApiServiceConfig {
+  /**
+   * API endpoint URL (REQUIRED if api config is provided)
+   */
+  url: string;
+
+  /**
+   * HTTP method to use
+   * @default 'POST'
+   */
+  type?: 'GET' | 'POST' | 'PUT' | 'PATCH';
+
+  /**
+   * HTTP headers to include in API requests
+   */
+  header?: Record<string, string>;
+
+  /**
+   * Additional parameters to include in API request body
+   */
+  additionalParams?: Record<string, any>;
+
+  /**
+   * Interval in minutes for sending batched location data to API
+   * @default 5
+   * @minimum 1
+   */
+  apiInterval?: number;
+}
+
+export interface ApiServiceStatus {
+  /**
+   * Whether API service is enabled and configured
+   */
+  isEnabled: boolean;
+
+  /**
+   * Number of location points in buffer waiting to be sent
+   */
+  bufferSize: number;
+
+  /**
+   * Whether API service is healthy (not in circuit breaker state)
+   */
+  isHealthy: boolean;
 }
 
 export interface LocationResult {

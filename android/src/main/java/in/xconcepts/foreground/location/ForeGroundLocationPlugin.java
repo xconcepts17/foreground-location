@@ -247,7 +247,21 @@ public class ForeGroundLocationPlugin extends Plugin {
      *   },
      *   "interval": 60000,                        // OPTIONAL - update interval in ms
      *   "fastestInterval": 30000,                 // OPTIONAL - fastest interval in ms
-     *   "priority": "HIGH_ACCURACY"               // OPTIONAL - location priority
+     *   "priority": "HIGH_ACCURACY",              // OPTIONAL - location priority
+     *   "distanceFilter": 0,                      // OPTIONAL - distance filter in meters
+     *   "api": {                                  // OPTIONAL - API service configuration
+     *     "url": "https://api.example.com/locations",  // REQUIRED if api block present
+     *     "type": "POST",                         // OPTIONAL - HTTP method (default: POST)
+     *     "header": {                             // OPTIONAL - HTTP headers
+     *       "Content-Type": "application/json",
+     *       "Authorization": "Bearer token"
+     *     },
+     *     "additionalParams": {                   // OPTIONAL - additional parameters to send
+     *       "userId": "123",
+     *       "sessionId": "abc"
+     *     },
+     *     "apiInterval": 5                        // OPTIONAL - API call interval in minutes (default: 5)
+     *   }
      * }
      * 
      * Error codes:
@@ -315,9 +329,46 @@ public class ForeGroundLocationPlugin extends Plugin {
             return;
         }
         
+        // Get and validate distance filter
+        long distanceFilter = call.getLong("distanceFilter", 0L); // Default 0 = no filter
+        if (distanceFilter < 0L) {
+            call.reject("INVALID_PARAMETERS", "distanceFilter must be 0 or greater (0 = no filter)");
+            return;
+        }
+        
         serviceIntent.putExtra("updateInterval", updateInterval);
         serviceIntent.putExtra("fastestInterval", fastestInterval);
         serviceIntent.putExtra("priority", priority);
+        serviceIntent.putExtra("distanceFilter", distanceFilter);
+
+        // Extract API configuration if provided
+        JSObject apiConfig = call.getObject("api");
+        if (apiConfig != null) {
+            String apiUrl = apiConfig.getString("url");
+            if (apiUrl != null && !apiUrl.trim().isEmpty()) {
+                serviceIntent.putExtra("apiUrl", apiUrl.trim());
+                serviceIntent.putExtra("apiType", apiConfig.getString("type", "POST"));
+                
+                JSObject headers = apiConfig.getJSObject("header");
+                if (headers != null) {
+                    serviceIntent.putExtra("apiHeaders", headers.toString());
+                }
+                
+                JSObject additionalParams = apiConfig.getJSObject("additionalParams");
+                if (additionalParams != null) {
+                    serviceIntent.putExtra("apiAdditionalParams", additionalParams.toString());
+                }
+                
+                Integer apiInterval = apiConfig.getInteger("apiInterval", 5);
+                if (apiInterval != null && apiInterval > 0) {
+                    serviceIntent.putExtra("apiInterval", apiInterval);
+                } else {
+                    serviceIntent.putExtra("apiInterval", 5); // Default 5 minutes
+                }
+                
+                Log.d(TAG, "API configuration added to service intent");
+            }
+        }
 
         // Start foreground service
         ContextCompat.startForegroundService(getContext(), serviceIntent);
@@ -442,9 +493,55 @@ public class ForeGroundLocationPlugin extends Plugin {
         
         int priority = convertPriority(priorityStr);
         
-        locationService.updateServiceConfiguration(title, text, icon, interval, fastestInterval, priority);
+        // Get distance filter parameter
+        long distanceFilter = call.getLong("distanceFilter", 0L); // Default 0 = no filter
+        if (distanceFilter < 0L) {
+            call.reject("INVALID_PARAMETERS", "distanceFilter must be 0 or greater (0 = no filter)");
+            return;
+        }
+        
+        locationService.updateServiceConfiguration(title, text, icon, interval, fastestInterval, priority, distanceFilter);
         call.resolve();
     }
+
+    @PluginMethod
+    public void getApiServiceStatus(PluginCall call) {
+        if (!isServiceBound || locationService == null) {
+            call.reject("SERVICE_NOT_RUNNING", "Location service is not running");
+            return;
+        }
+
+        JSObject result = new JSObject();
+        result.put("isEnabled", locationService.isApiServiceEnabled());
+        result.put("bufferSize", locationService.getApiBufferSize());
+        result.put("isHealthy", locationService.isApiHealthy());
+        
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void clearApiBuffers(PluginCall call) {
+        if (!isServiceBound || locationService == null) {
+            call.reject("SERVICE_NOT_RUNNING", "Location service is not running");
+            return;
+        }
+
+        locationService.clearApiBuffers();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void resetApiCircuitBreaker(PluginCall call) {
+        if (!isServiceBound || locationService == null) {
+            call.reject("SERVICE_NOT_RUNNING", "Location service is not running");
+            return;
+        }
+
+        locationService.resetApiCircuitBreaker();
+        call.resolve();
+    }
+
+    // Helper methods
 
     // Helper method to debug notification configuration
     private void logNotificationConfig(JSObject notification) {

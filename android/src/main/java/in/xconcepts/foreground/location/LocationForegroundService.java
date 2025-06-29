@@ -30,8 +30,14 @@ import com.google.android.gms.location.Priority;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Locale;
+import java.util.Map;
 import java.util.TimeZone;
+
+import org.json.JSONException;
+import org.json.JSONObject;
 
 public class LocationForegroundService extends Service {
     private static final String TAG = "LocationForegroundService";
@@ -57,6 +63,18 @@ public class LocationForegroundService extends Service {
     private long updateInterval = 60000; // 1 minute
     private long fastestInterval = 30000; // 30 seconds
     private int priority = Priority.PRIORITY_HIGH_ACCURACY;
+    private long distanceFilter = 0; // Distance filter in meters (0 = no filter)
+
+    // API Service Integration
+    private APIService apiService;
+    private boolean enableApiService = false;
+    
+    // API Configuration
+    private String apiUrl;
+    private String apiType;
+    private Map<String, String> apiHeaders;
+    private JSONObject apiAdditionalParams;
+    private int apiIntervalMinutes = 5;
 
     private final IBinder binder = new LocationServiceBinder();
 
@@ -73,6 +91,7 @@ public class LocationForegroundService extends Service {
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        apiService = new APIService(this); // Initialize API service
 
         createNotificationChannel();
         setupLocationCallback();
@@ -102,6 +121,12 @@ public class LocationForegroundService extends Service {
     public void onDestroy() {
         Log.d(TAG, "LocationForegroundService destroyed");
         stopLocationUpdates();
+        
+        // Cleanup API service
+        if (apiService != null) {
+            apiService.shutdown();
+        }
+        
         super.onDestroy();
     }
 
@@ -125,6 +150,55 @@ public class LocationForegroundService extends Service {
             String priorityStr = intent.getStringExtra("priority");
             priority = convertPriority(priorityStr);
         }
+        if (intent.hasExtra("distanceFilter")) {
+            distanceFilter = intent.getLongExtra("distanceFilter", 0L);
+            Log.d(TAG, "Distance filter set to: " + distanceFilter + " meters");
+        }
+        
+        // Extract API configuration
+        if (intent.hasExtra("apiUrl")) {
+            apiUrl = intent.getStringExtra("apiUrl");
+            enableApiService = apiUrl != null && !apiUrl.isEmpty();
+            Log.d(TAG, "API Service " + (enableApiService ? "enabled" : "disabled"));
+        }
+        
+        if (enableApiService) {
+            if (intent.hasExtra("apiType")) {
+                apiType = intent.getStringExtra("apiType");
+            }
+            if (intent.hasExtra("apiHeaders")) {
+                try {
+                    String headersJson = intent.getStringExtra("apiHeaders");
+                    if (headersJson != null) {
+                        JSONObject headersObj = new JSONObject(headersJson);
+                        apiHeaders = new HashMap<>();
+                        Iterator<String> keys = headersObj.keys();
+                        while (keys.hasNext()) {
+                            String key = keys.next();
+                            apiHeaders.put(key, headersObj.getString(key));
+                        }
+                    }
+                } catch (JSONException e) {
+                    Log.e(TAG, "Error parsing API headers", e);
+                }
+            }
+            if (intent.hasExtra("apiAdditionalParams")) {
+                try {
+                    String paramsJson = intent.getStringExtra("apiAdditionalParams");
+                    if (paramsJson != null && !paramsJson.isEmpty()) {
+                        apiAdditionalParams = new JSONObject(paramsJson);
+                    }
+                } catch (JSONException e) {
+                    Log.e(TAG, "Error parsing API additional params", e);
+                }
+            }
+            if (intent.hasExtra("apiInterval")) {
+                apiIntervalMinutes = intent.getIntExtra("apiInterval", 5);
+            }
+            
+            // Configure API service
+            configureApiService();
+        }
     }
 
     private int convertPriority(String priorityStr) {
@@ -141,6 +215,13 @@ public class LocationForegroundService extends Service {
                 return Priority.PRIORITY_PASSIVE;
             default:
                 return Priority.PRIORITY_HIGH_ACCURACY;
+        }
+    }
+
+    private void configureApiService() {
+        if (enableApiService && apiUrl != null && !apiUrl.isEmpty()) {
+            apiService.configure(apiUrl, apiType, apiHeaders, apiAdditionalParams, apiIntervalMinutes);
+            Log.d(TAG, "API Service configured successfully");
         }
     }
 
@@ -247,6 +328,13 @@ public class LocationForegroundService extends Service {
                 Looper.getMainLooper()
             );
             isLocationUpdatesActive = true;
+            
+            // Start API service if configured
+            if (enableApiService) {
+                apiService.startApiService();
+                Log.d(TAG, "API Service started");
+            }
+            
             broadcastServiceStatus(true, null);
             Log.d(TAG, "Location updates started");
         } catch (SecurityException e) {
@@ -259,6 +347,13 @@ public class LocationForegroundService extends Service {
         if (fusedLocationClient != null && locationCallback != null) {
             fusedLocationClient.removeLocationUpdates(locationCallback);
             isLocationUpdatesActive = false;
+            
+            // Stop API service
+            if (apiService != null) {
+                apiService.stopApiService();
+                Log.d(TAG, "API Service stopped");
+            }
+            
             broadcastServiceStatus(false, null);
             Log.d(TAG, "Location updates stopped");
         }
@@ -267,11 +362,18 @@ public class LocationForegroundService extends Service {
     private void createLocationRequest() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             // Use new Builder API (API 31+)
-            locationRequest = new LocationRequest.Builder(priority, updateInterval)
+            LocationRequest.Builder builder = new LocationRequest.Builder(priority, updateInterval)
                 .setWaitForAccurateLocation(false)
                 .setMinUpdateIntervalMillis(fastestInterval)
-                .setMaxUpdateDelayMillis(updateInterval * 2)
-                .build();
+                .setMaxUpdateDelayMillis(updateInterval * 2);
+            
+            // Add distance filter if specified
+            if (distanceFilter > 0) {
+                builder.setMinUpdateDistanceMeters((float) distanceFilter);
+                Log.d(TAG, "Distance filter applied: " + distanceFilter + " meters");
+            }
+            
+            locationRequest = builder.build();
         } else {
             // Use legacy API (API 23+)
             locationRequest = LocationRequest.create()
@@ -279,6 +381,12 @@ public class LocationForegroundService extends Service {
                 .setInterval(updateInterval)
                 .setFastestInterval(fastestInterval)
                 .setMaxWaitTime(updateInterval * 2);
+            
+            // Add distance filter for legacy API
+            if (distanceFilter > 0) {
+                locationRequest.setSmallestDisplacement((float) distanceFilter);
+                Log.d(TAG, "Distance filter applied (legacy): " + distanceFilter + " meters");
+            }
         }
     }
 
@@ -295,7 +403,7 @@ public class LocationForegroundService extends Service {
         sdf.setTimeZone(TimeZone.getTimeZone("UTC"));
         String timestamp = sdf.format(new Date(location.getTime()));
 
-        // Broadcast location update
+        // ALWAYS broadcast to Ionic app (regardless of API configuration)
         Intent intent = new Intent(ACTION_LOCATION_UPDATE);
         intent.putExtra("latitude", location.getLatitude());
         intent.putExtra("longitude", location.getLongitude());
@@ -314,20 +422,45 @@ public class LocationForegroundService extends Service {
 
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
 
+        // ADDITIONALLY send to API service if enabled
+        if (enableApiService && apiService != null) {
+            try {
+                JSONObject locationData = new JSONObject();
+                locationData.put("latitude", location.getLatitude());
+                locationData.put("longitude", location.getLongitude());
+                locationData.put("accuracy", (double) location.getAccuracy());
+                locationData.put("timestamp", timestamp);
+
+                if (location.hasAltitude()) {
+                    locationData.put("altitude", location.getAltitude());
+                }
+                if (location.hasBearing()) {
+                    locationData.put("bearing", (double) location.getBearing());
+                }
+                if (location.hasSpeed()) {
+                    locationData.put("speed", (double) location.getSpeed());
+                }
+
+                apiService.addLocationData(locationData);
+            } catch (JSONException e) {
+                Log.e(TAG, "Error creating location data JSON for API", e);
+            }
+        }
+
         // Update notification with current location
         updateNotificationWithLocation(location);
     }
 
     private void updateNotificationWithLocation(Location location) {
-        String updatedText = String.format(Locale.US, 
-            "Lat: %.6f, Lng: %.6f", 
-            location.getLatitude(), 
-            location.getLongitude()
-        );
+        // String updatedText = String.format(Locale.US, 
+        //     "Lat: %.6f, Lng: %.6f", 
+        //     location.getLatitude(), 
+        //     location.getLongitude()
+        // );
 
         Notification updatedNotification = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(notificationTitle)
-            .setContentText(updatedText)
+            .setContentText(notificationText)
             .setSmallIcon(getNotificationIcon())
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -350,13 +483,38 @@ public class LocationForegroundService extends Service {
         return isLocationUpdatesActive;
     }
 
-    public void updateServiceConfiguration(String title, String text, String icon, long interval, long fastest, int priority) {
+    public int getApiBufferSize() {
+        return apiService != null ? apiService.getBufferSize() : 0;
+    }
+
+    public void clearApiBuffers() {
+        if (apiService != null) {
+            apiService.clearBuffers();
+        }
+    }
+
+    public boolean isApiServiceEnabled() {
+        return enableApiService;
+    }
+
+    public boolean isApiHealthy() {
+        return apiService != null ? apiService.isApiHealthy() : false;
+    }
+
+    public void resetApiCircuitBreaker() {
+        if (apiService != null) {
+            apiService.resetCircuitBreaker();
+        }
+    }
+
+    public void updateServiceConfiguration(String title, String text, String icon, long interval, long fastest, int priority, long distanceFilter) {
         this.notificationTitle = title;
         this.notificationText = text;
         this.notificationIcon = icon;
         this.updateInterval = interval;
         this.fastestInterval = fastest;
         this.priority = priority;
+        this.distanceFilter = distanceFilter;
 
         // Restart location updates with new configuration
         stopLocationUpdates();
