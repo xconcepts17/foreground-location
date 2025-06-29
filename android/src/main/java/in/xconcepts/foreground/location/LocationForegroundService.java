@@ -53,6 +53,7 @@ public class LocationForegroundService extends Service {
     // Service configuration
     private String notificationTitle = "Location Tracking";
     private String notificationText = "Tracking your location in the background";
+    private String notificationIcon = null; // Custom icon name from app
     private long updateInterval = 60000; // 1 minute
     private long fastestInterval = 30000; // 30 seconds
     private int priority = Priority.PRIORITY_HIGH_ACCURACY;
@@ -111,6 +112,9 @@ public class LocationForegroundService extends Service {
         if (intent.hasExtra("notificationText")) {
             notificationText = intent.getStringExtra("notificationText");
         }
+        if (intent.hasExtra("notificationIcon")) {
+            notificationIcon = intent.getStringExtra("notificationIcon");
+        }
         if (intent.hasExtra("updateInterval")) {
             updateInterval = intent.getLongExtra("updateInterval", 60000);
         }
@@ -163,12 +167,49 @@ public class LocationForegroundService extends Service {
         return new NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(notificationTitle)
             .setContentText(notificationText)
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setSmallIcon(getNotificationIcon())
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build();
+    }
+
+    private int getNotificationIcon() {
+        // Try custom icon first if provided
+        if (notificationIcon != null && !notificationIcon.isEmpty()) {
+            int customIconResId = getResources().getIdentifier(
+                notificationIcon, 
+                "drawable", 
+                getPackageName()
+            );
+            
+            if (customIconResId != 0) {
+                Log.d(TAG, "Using custom notification icon: " + notificationIcon);
+                return customIconResId;
+            } else {
+                Log.w(TAG, "Custom icon not found: " + notificationIcon + ", falling back to app icon");
+            }
+        }
+        
+        // Try to get application icon
+        try {
+            android.content.pm.ApplicationInfo appInfo = getPackageManager().getApplicationInfo(
+                getPackageName(), 
+                android.content.pm.PackageManager.GET_META_DATA
+            );
+            
+            if (appInfo.icon != 0) {
+                Log.d(TAG, "Using application icon for notification");
+                return appInfo.icon;
+            }
+        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+            Log.e(TAG, "Could not get application info", e);
+        }
+        
+        // Final fallback to system location icon
+        Log.d(TAG, "Using system default location icon");
+        return android.R.drawable.ic_menu_mylocation;
     }
 
     private void setupLocationCallback() {
@@ -277,7 +318,7 @@ public class LocationForegroundService extends Service {
         Notification updatedNotification = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(notificationTitle)
             .setContentText(updatedText)
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setSmallIcon(getNotificationIcon())
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build();
@@ -299,9 +340,10 @@ public class LocationForegroundService extends Service {
         return isLocationUpdatesActive;
     }
 
-    public void updateServiceConfiguration(String title, String text, long interval, long fastest, int priority) {
+    public void updateServiceConfiguration(String title, String text, String icon, long interval, long fastest, int priority) {
         this.notificationTitle = title;
         this.notificationText = text;
+        this.notificationIcon = icon;
         this.updateInterval = interval;
         this.fastestInterval = fastest;
         this.priority = priority;

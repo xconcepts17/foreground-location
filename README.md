@@ -21,9 +21,11 @@ A Capacitor plugin for continuous location tracking using Android's Foreground S
 ## Installation
 
 ```bash
-npm install foreground-location-plugin
+npm install foreground-location
 npx cap sync
 ```
+
+> 📚 **Need more examples?** Check out our comprehensive [Setup and Examples Guide](./docs/setup-and-examples.md) for detailed implementation examples and troubleshooting.
 
 ## Android Configuration
 
@@ -91,7 +93,10 @@ Add to `android/app/proguard-rules.pro`:
 ### Import the Plugin
 
 ```typescript
-import { ForeGroundLocation } from 'foreground-location-plugin';
+import { ForeGroundLocation, PluginListenerHandle, LocationResult, ServiceStatus } from 'foreground-location';
+
+// Or import individual types as needed
+let locationListener: PluginListenerHandle;
 ```
 
 ### Check and Request Permissions
@@ -126,7 +131,7 @@ const startLocationService = async () => {
       notification: {
         title: 'Location Tracking',
         text: 'Tracking your location for better service',
-        icon: 'ic_location', // Optional custom icon
+        icon: 'ic_location', // Optional: custom icon name (without extension)
       },
       enableHighAccuracy: true,
       distanceFilter: 10, // Minimum 10 meters movement
@@ -138,6 +143,86 @@ const startLocationService = async () => {
   }
 };
 ```
+
+#### Notification Icon Options
+
+The plugin supports multiple icon options with automatic fallback:
+
+1. **Custom Icon** (Optional): Provide icon name in notification.icon
+
+   ```typescript
+   notification: {
+     title: 'Location Tracking',
+     text: 'Tracking location',
+     icon: 'ic_location_tracking' // Your custom drawable resource
+   }
+   ```
+
+2. **Application Icon** (Default): If no custom icon is provided or found, uses your app's icon
+3. **System Icon** (Fallback): Uses Android's default location icon as final fallback
+
+## Notification Icon Configuration
+
+### Icon Priority and Fallback
+
+The plugin uses a smart icon selection system with automatic fallback:
+
+1. **Custom Icon** → 2. **Application Icon** → 3. **System Location Icon**
+
+### Custom Icon Setup
+
+To use a custom notification icon, add your icon to your app's drawable resources:
+
+#### Step 1: Add Icon Resource
+
+Create your icon file in:
+
+```
+android/app/src/main/res/drawable/ic_location_tracking.xml
+```
+
+Example vector drawable:
+
+```xml
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="?attr/colorOnPrimary">
+  <path
+      android:fillColor="@android:color/white"
+      android:pathData="M12,2C8.13,2 5,5.13 5,9c0,5.25 7,13 7,13s7,-7.75 7,-13c0,-3.87 -3.13,-7 -7,-7zM12,11.5c-1.38,0 -2.5,-1.12 -2.5,-2.5s1.12,-2.5 2.5,-2.5 2.5,1.12 2.5,2.5 -1.12,2.5 -2.5,2.5z"/>
+</vector>
+```
+
+#### Step 2: Use in Plugin Configuration
+
+```typescript
+await ForeGroundLocation.startForegroundLocationService({
+  // ...other options...
+  notification: {
+    title: 'Location Tracking',
+    text: 'Tracking your location',
+    icon: 'ic_location_tracking', // Name without file extension
+  },
+});
+```
+
+### Icon Requirements
+
+- **Format:** Vector drawable (XML) recommended, PNG supported
+- **Size:** 24x24dp for vector, multiple densities for PNG
+- **Color:** Monochrome (white/transparent) for best results with system themes
+- **Location:** `android/app/src/main/res/drawable/`
+
+### Application Icon (Default)
+
+If no custom icon is specified, the plugin automatically uses your app's icon from the manifest. This provides a consistent branding experience without additional setup.
+
+### System Fallback
+
+As a final fallback, the plugin uses Android's built-in location icon (`android.R.drawable.ic_menu_mylocation`) to ensure the notification always displays properly.
 
 ### Listen for Location Updates
 
@@ -411,22 +496,34 @@ try {
 
 ### Common Issues
 
-1. **Service not starting**
+1. **TypeScript Import Error**
+
+   ```
+   Module '"foreground-location"' has no exported member 'PluginListenerHandle'.ts(2305)
+   ```
+
+   **Solution:** Import all types from the plugin package:
+
+   ```typescript
+   import { ForeGroundLocation, PluginListenerHandle, LocationResult } from 'foreground-location';
+   ```
+
+2. **Service not starting**
    - Check all required permissions are granted
    - Verify manifest configuration
    - Ensure Google Play Services is available
 
-2. **No location updates**
+3. **No location updates**
    - Check device location settings are enabled
    - Verify location permissions are granted
    - Check if device has GPS capability
 
-3. **High battery usage**
+4. **High battery usage**
    - Increase update intervals
    - Use lower accuracy priority
    - Implement distance filter
 
-4. **Permission denied**
+5. **Permission denied**
    - Request permissions in correct order
    - Handle permission rationale
    - Guide users to app settings if needed
@@ -453,7 +550,7 @@ const statusListener = await ForeGroundLocation.addListener('serviceStatusChange
 ## Example Implementation
 
 ```typescript
-import { ForeGroundLocation } from 'foreground-location-plugin';
+import { ForeGroundLocation } from 'foreground-location';
 
 class LocationService {
   private isTracking = false;
@@ -544,7 +641,7 @@ For issues and questions:
 
 ## Changelog
 
-### 1.0.0
+### 0.0.1
 
 - Initial release
 - Android foreground service implementation

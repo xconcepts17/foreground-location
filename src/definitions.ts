@@ -1,5 +1,8 @@
 import type { PermissionState, PluginListenerHandle } from '@capacitor/core';
 
+// Re-export Capacitor types for user convenience
+export type { PermissionState, PluginListenerHandle };
+
 export interface ForeGroundLocationPlugin {
   /**
    * Check current permission status

@@ -13,16 +13,17 @@
     "ios/Sources",
     "ios/Tests",
     "Package.swift",
-    "ForegroundLocation.podspec"
+    "ForegroundLocation.podspec",
+    "docs/"
   ],
   "author": "xConcepts",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/xconcepts17/foreground-location-plugin.git"
+    "url": "git+https://github.com/xconcepts17/foreground-location.git"
   },
   "bugs": {
-    "url": "https://github.com/xconcepts17/foreground-location-plugin/issues"
+    "url": "https://github.com/xconcepts17/foreground-location/issues"
   },
   "keywords": [
     "capacitor",

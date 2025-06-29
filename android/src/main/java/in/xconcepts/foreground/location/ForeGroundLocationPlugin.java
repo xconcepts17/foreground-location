@@ -206,6 +206,36 @@ public class ForeGroundLocationPlugin extends Plugin {
         checkPermissions(call);
     }
 
+    /**
+     * Start foreground location service with notification configuration
+     * 
+     * Expected format (parameters sent directly):
+     * {
+     *   "notification": {
+     *     "title": "Location Tracking Active",    // REQUIRED
+     *     "text": "Recording your route...",      // REQUIRED  
+     *     "icon": "ic_location"                   // OPTIONAL - drawable resource name
+     *   },
+     *   "interval": 60000,                        // OPTIONAL - update interval in ms
+     *   "fastestInterval": 30000,                 // OPTIONAL - fastest interval in ms
+     *   "priority": "HIGH_ACCURACY"               // OPTIONAL - location priority
+     * }
+     * 
+     * Alternative format (with options wrapper - for backward compatibility):
+     * {
+     *   "options": {
+     *     "notification": { ... },
+     *     "interval": 60000,
+     *     ...
+     *   }
+     * }
+     * 
+     * Common issues:
+     * - Missing notification.title or notification.text
+     * - Empty strings for title or text
+     * - Custom icon not found in drawable resources
+     * - Permissions not granted before calling this method
+     */
     @PluginMethod
     public void startForegroundLocationService(PluginCall call) {
         if (getLocationPermissionState() != PermissionState.GRANTED) {
@@ -213,21 +243,58 @@ public class ForeGroundLocationPlugin extends Plugin {
             return;
         }
 
-        JSObject options = call.getObject("options", new JSObject());
-        JSObject notification = options.getJSObject("notification");
-        
-        if (notification == null) {
-            call.reject("Notification configuration is required");
-            return;
+        // Get parameters directly from call data (not wrapped in options object)
+        JSObject options;
+        try {
+            // Try to get options object first (for backward compatibility)
+            options = call.getObject("options");
+            if (options == null) {
+                // If no options object, use call data directly
+                options = call.getData();
+            }
+        } catch (Exception e) {
+            // If getting options fails, use call data directly
+            options = call.getData();
+            Log.d(TAG, "Using call data directly instead of options object");
         }
+        
+        // Use comprehensive validation
+        if (!validateAndExtractNotification(call, options)) {
+            return; // Error already sent in validation method
+        }
+        
+        JSObject notification = options.getJSObject("notification");
+        String title = notification.getString("title");
+        String text = notification.getString("text");
 
         Intent serviceIntent = new Intent(getContext(), LocationForegroundService.class);
         
-        // Add configuration to intent
-        serviceIntent.putExtra("notificationTitle", notification.getString("title", "Location Tracking"));
-        serviceIntent.putExtra("notificationText", notification.getString("text", "Tracking location"));
-        serviceIntent.putExtra("updateInterval", options.getLong("interval", 60000L));
-        serviceIntent.putExtra("fastestInterval", options.getLong("fastestInterval", 30000L));
+        // Add configuration to intent using validated values
+        serviceIntent.putExtra("notificationTitle", title);
+        serviceIntent.putExtra("notificationText", text);
+        serviceIntent.putExtra("notificationIcon", notification.getString("icon")); // Can be null
+        
+        // Get interval values safely
+        long updateInterval = 60000L; // Default 60 seconds
+        if (options.has("interval")) {
+            try {
+                updateInterval = options.getLong("interval");
+            } catch (Exception e) {
+                Log.w(TAG, "Invalid interval value, using default", e);
+            }
+        }
+        
+        long fastestInterval = 30000L; // Default 30 seconds
+        if (options.has("fastestInterval")) {
+            try {
+                fastestInterval = options.getLong("fastestInterval");
+            } catch (Exception e) {
+                Log.w(TAG, "Invalid fastestInterval value, using default", e);
+            }
+        }
+        
+        serviceIntent.putExtra("updateInterval", updateInterval);
+        serviceIntent.putExtra("fastestInterval", fastestInterval);
         serviceIntent.putExtra("priority", options.getString("priority", "HIGH_ACCURACY"));
 
         // Start foreground service
@@ -303,19 +370,140 @@ public class ForeGroundLocationPlugin extends Plugin {
             return;
         }
 
-        JSObject options = call.getObject("options", new JSObject());
+        // Get parameters directly from call data (support both options object and direct parameters)
+        JSObject options;
+        try {
+            options = call.getObject("options");
+            if (options == null) {
+                options = call.getData();
+            }
+        } catch (Exception e) {
+            options = call.getData();
+        }
+        
         JSObject notification = options.getJSObject("notification");
         
-        String title = notification != null ? notification.getString("title", "Location Tracking") : "Location Tracking";
-        String text = notification != null ? notification.getString("text", "Tracking location") : "Tracking location";
-        long interval = options.getLong("interval", 60000L);
-        long fastestInterval = options.getLong("fastestInterval", 30000L);
+        // Enhanced validation for notification configuration in updates
+        String title = "Location Tracking"; // Default
+        String text = "Tracking location"; // Default
+        String icon = null;
+        
+        if (notification != null) {
+            // Use provided values if valid, otherwise keep defaults
+            String providedTitle = notification.getString("title");
+            String providedText = notification.getString("text");
+            
+            if (providedTitle != null && !providedTitle.trim().isEmpty()) {
+                title = providedTitle;
+            }
+            
+            if (providedText != null && !providedText.trim().isEmpty()) {
+                text = providedText;
+            }
+            
+            icon = notification.getString("icon");
+        }
+        
+        Log.d(TAG, "Updating service configuration - Title: " + title + ", Text: " + text);
+        
+        // Get interval values safely
+        long interval = 60000L; // Default 60 seconds
+        if (options.has("interval")) {
+            try {
+                interval = options.getLong("interval");
+            } catch (Exception e) {
+                Log.w(TAG, "Invalid interval value, using default", e);
+            }
+        }
+        
+        long fastestInterval = 30000L; // Default 30 seconds
+        if (options.has("fastestInterval")) {
+            try {
+                fastestInterval = options.getLong("fastestInterval");
+            } catch (Exception e) {
+                Log.w(TAG, "Invalid fastestInterval value, using default", e);
+            }
+        }
+        
         String priorityStr = options.getString("priority", "HIGH_ACCURACY");
         
         int priority = convertPriority(priorityStr);
         
-        locationService.updateServiceConfiguration(title, text, interval, fastestInterval, priority);
+        locationService.updateServiceConfiguration(title, text, icon, interval, fastestInterval, priority);
         call.resolve();
+    }
+
+    // Helper method to debug notification configuration
+    private void logNotificationConfig(JSObject notification) {
+        if (notification == null) {
+            Log.d(TAG, "Notification config is null");
+            return;
+        }
+        
+        Log.d(TAG, "Notification config received:");
+        Log.d(TAG, "  - Length: " + notification.length());
+        Log.d(TAG, "  - Keys: " + notification.keys());
+        
+        if (notification.has("title")) {
+            Log.d(TAG, "  - Title: '" + notification.getString("title") + "'");
+        } else {
+            Log.d(TAG, "  - Title: NOT PROVIDED");
+        }
+        
+        if (notification.has("text")) {
+            Log.d(TAG, "  - Text: '" + notification.getString("text") + "'");
+        } else {
+            Log.d(TAG, "  - Text: NOT PROVIDED");
+        }
+        
+        if (notification.has("icon")) {
+            Log.d(TAG, "  - Icon: '" + notification.getString("icon") + "'");
+        } else {
+            Log.d(TAG, "  - Icon: NOT PROVIDED");
+        }
+    }
+
+    // Helper method to safely extract notification configuration
+    private boolean validateAndExtractNotification(PluginCall call, JSObject options) {
+        if (options == null) {
+            call.reject("Options parameter is required");
+            return false;
+        }
+        
+        JSObject notification = options.getJSObject("notification");
+        
+        // Debug logging for troubleshooting
+        Log.d(TAG, "validateAndExtractNotification called");
+        Log.d(TAG, "Options received: " + options.toString());
+        logNotificationConfig(notification);
+        
+        // Enhanced validation for notification configuration
+        if (notification == null) {
+            call.reject("Notification configuration is required. Please provide notification object with title and text properties.");
+            return false;
+        }
+        
+        if (notification.length() == 0) {
+            call.reject("Notification configuration cannot be empty. Please provide title and text properties.");
+            return false;
+        }
+        
+        // Validate required notification properties
+        String title = notification.getString("title");
+        String text = notification.getString("text");
+        
+        if (title == null || title.trim().isEmpty()) {
+            call.reject("Notification title is required in notification configuration.");
+            return false;
+        }
+        
+        if (text == null || text.trim().isEmpty()) {
+            call.reject("Notification text is required in notification configuration.");
+            return false;
+        }
+        
+        Log.d(TAG, "Notification configuration validated successfully - Title: " + title + ", Text: " + text);
+        return true;
     }
 
     private PermissionState getLocationPermissionState() {
