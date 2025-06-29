@@ -1,12 +1,14 @@
 # Foreground Location Plugin
 
+> **🎉 Status: Production Ready** - All critical bugs have been fixed and the plugin is fully functional. See [Plugin Status](./PLUGIN-STATUS.md) for details.
+
 A Capacitor plugin for continuous location tracking using Android's Foreground Service with FusedLocationProviderClient. This plugin is specifically designed for Android applications that require persistent location updates even when the app is in the background.
 
 ## Platform Support
 
-- ✅ **Android**: Full implementation with Foreground Service
-- ❌ **iOS**: Service not available (use iOS background location modes)
-- ❌ **Web**: Service not available (basic getCurrentLocation only)
+- ✅ **Android**: Full implementation with Foreground Service (API 23+)
+- ⚠️ **iOS**: Limited support - basic location access only (foreground service not available)
+- ⚠️ **Web**: Basic support - getCurrentLocation only (background tracking not supported)
 
 ## Features
 
@@ -478,18 +480,81 @@ const notification = {
 
 ### 4. Error Handling
 
+The plugin provides comprehensive error handling with specific error codes:
+
 ```typescript
+import { ForeGroundLocation, ERROR_CODES } from 'foreground-location';
+
 try {
-  await ForeGroundLocation.startForegroundLocationService(config);
+  // Check permissions first
+  const permissions = await ForeGroundLocation.checkPermissions();
+
+  if (permissions.location !== 'granted') {
+    const result = await ForeGroundLocation.requestPermissions();
+    if (result.location !== 'granted') {
+      throw new Error('PERMISSION_DENIED: Location permission is required');
+    }
+  }
+
+  // Start the service with proper error handling
+  await ForeGroundLocation.startForegroundLocationService({
+    notification: {
+      title: 'Location Tracking Active',
+      text: 'Recording your route...',
+    },
+    interval: 60000,
+    fastestInterval: 30000,
+    priority: 'HIGH_ACCURACY',
+  });
 } catch (error) {
-  if (error.includes('permission')) {
-    // Handle permission issues
-    showPermissionDialog();
+  console.error('Location service error:', error);
+
+  // Handle specific error codes
+  if (error.message.includes('PERMISSION_DENIED')) {
+    // Guide user to grant permissions
+    showPermissionRationale();
+  } else if (error.message.includes('INVALID_NOTIFICATION')) {
+    // Fix notification configuration
+    console.error('Invalid notification config - title and text are required');
+  } else if (error.message.includes('INVALID_PARAMETERS')) {
+    // Fix parameter values
+    console.error('Invalid parameters - check intervals and priority values');
+  } else if (error.message.includes('LOCATION_SERVICES_DISABLED')) {
+    // Guide user to enable location services
+    showLocationServicesDialog();
   } else {
     // Handle other errors
-    showErrorMessage(error);
+    showGenericErrorMessage(error.message);
   }
 }
+```
+
+#### Error Codes Reference
+
+| Error Code                   | Description                         | Solution                                     |
+| ---------------------------- | ----------------------------------- | -------------------------------------------- |
+| `PERMISSION_DENIED`          | Location permission not granted     | Request permissions or guide to app settings |
+| `INVALID_NOTIFICATION`       | Missing/invalid notification config | Provide valid title and text                 |
+| `INVALID_PARAMETERS`         | Invalid interval or priority values | Use valid ranges (intervals ≥ 1000ms)        |
+| `LOCATION_SERVICES_DISABLED` | Device location services disabled   | Guide user to enable location services       |
+| `UNSUPPORTED_PLATFORM`       | Feature not supported on platform   | Use platform-specific alternatives           |
+
+#### Validation Requirements
+
+```typescript
+// Notification configuration (REQUIRED)
+const notification = {
+  title: 'Location Tracking', // REQUIRED - cannot be empty
+  text: 'Tracking your location', // REQUIRED - cannot be empty
+  icon: 'ic_location', // OPTIONAL - drawable resource name
+};
+
+// Interval validation
+const config = {
+  interval: 60000, // REQUIRED - minimum 1000ms
+  fastestInterval: 30000, // REQUIRED - minimum 1000ms, must be ≤ interval
+  priority: 'HIGH_ACCURACY', // Must be valid priority value
+};
 ```
 
 ## Troubleshooting

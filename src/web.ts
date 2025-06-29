@@ -1,16 +1,24 @@
 import { WebPlugin } from '@capacitor/core';
+
 import type {
   ForeGroundLocationPlugin,
   LocationPermissionStatus,
-  LocationServiceOptions,
   LocationResult
 } from './definitions';
 
 export class ForeGroundLocationWeb extends WebPlugin implements ForeGroundLocationPlugin {
 
   async checkPermissions(): Promise<LocationPermissionStatus> {
-    if (typeof navigator === 'undefined' || !navigator.permissions) {
-      throw this.unavailable('Permissions API not available in this browser.');
+    if (typeof navigator === 'undefined') {
+      throw this.unavailable('Navigator not available');
+    }
+
+    if (!navigator.permissions) {
+      throw this.unavailable('Permissions API not available in this browser');
+    }
+
+    if (!navigator.geolocation) {
+      throw this.unavailable('Geolocation API not available in this browser');
     }
 
     try {
@@ -20,7 +28,8 @@ export class ForeGroundLocationWeb extends WebPlugin implements ForeGroundLocati
         backgroundLocation: 'denied',
         notifications: 'denied'
       };
-    } catch {
+    } catch (error) {
+      // Fallback for browsers that support geolocation but not permissions query
       return {
         location: 'prompt',
         backgroundLocation: 'denied',
@@ -33,7 +42,7 @@ export class ForeGroundLocationWeb extends WebPlugin implements ForeGroundLocati
     throw this.unimplemented('Background location service not supported on web. Use getCurrentLocation() for one-time location access.');
   }
 
-  async startForegroundLocationService(_options: LocationServiceOptions): Promise<void> {
+  async startForegroundLocationService(): Promise<void> {
     throw this.unimplemented('Foreground location service not supported on web. Use getCurrentLocation() for one-time location access.');
   }
 
@@ -46,8 +55,12 @@ export class ForeGroundLocationWeb extends WebPlugin implements ForeGroundLocati
   }
 
   async getCurrentLocation(): Promise<LocationResult> {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      throw this.unavailable('Geolocation API not available in this browser.');
+    if (typeof navigator === 'undefined') {
+      throw this.unavailable('Navigator not available');
+    }
+
+    if (!navigator.geolocation) {
+      throw this.unavailable('Geolocation API not available in this browser');
     }
 
     return new Promise((resolve, reject) => {
@@ -64,7 +77,22 @@ export class ForeGroundLocationWeb extends WebPlugin implements ForeGroundLocati
           });
         },
         (error) => {
-          reject(`Location error: ${error.message}`);
+          let errorMessage = 'Location error';
+          switch (error.code) {
+            case error.PERMISSION_DENIED:
+              errorMessage = 'Location permission denied';
+              break;
+            case error.POSITION_UNAVAILABLE:
+              errorMessage = 'Location position unavailable';
+              break;
+            case error.TIMEOUT:
+              errorMessage = 'Location request timed out';
+              break;
+            default:
+              errorMessage = `Location error: ${error.message}`;
+              break;
+          }
+          reject(errorMessage);
         },
         {
           enableHighAccuracy: true,
@@ -75,7 +103,7 @@ export class ForeGroundLocationWeb extends WebPlugin implements ForeGroundLocati
     });
   }
 
-  async updateLocationSettings(_options: LocationServiceOptions): Promise<void> {
+  async updateLocationSettings(): Promise<void> {
     throw this.unimplemented('Location service settings not supported on web.');
   }
 }

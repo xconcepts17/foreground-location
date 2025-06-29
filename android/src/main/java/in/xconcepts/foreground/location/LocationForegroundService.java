@@ -265,11 +265,21 @@ public class LocationForegroundService extends Service {
     }
 
     private void createLocationRequest() {
-        locationRequest = new LocationRequest.Builder(priority, updateInterval)
-            .setWaitForAccurateLocation(false)
-            .setMinUpdateIntervalMillis(fastestInterval)
-            .setMaxUpdateDelayMillis(updateInterval * 2)
-            .build();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // Use new Builder API (API 31+)
+            locationRequest = new LocationRequest.Builder(priority, updateInterval)
+                .setWaitForAccurateLocation(false)
+                .setMinUpdateIntervalMillis(fastestInterval)
+                .setMaxUpdateDelayMillis(updateInterval * 2)
+                .build();
+        } else {
+            // Use legacy API (API 23+)
+            locationRequest = LocationRequest.create()
+                .setPriority(priority)
+                .setInterval(updateInterval)
+                .setFastestInterval(fastestInterval)
+                .setMaxWaitTime(updateInterval * 2);
+        }
     }
 
     private boolean hasLocationPermissions() {

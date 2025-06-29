@@ -1,11 +1,14 @@
 import Foundation
 import CoreLocation
 
-@objc public class ForeGroundLocation: NSObject {
+@objc public class ForeGroundLocation: NSObject, CLLocationManagerDelegate {
     private var locationManager: CLLocationManager?
+    private var locationCompletion: ((Result<CLLocation, Error>) -> Void)?
     
     public func getCurrentLocation(completion: @escaping (Result<CLLocation, Error>) -> Void) {
         locationManager = CLLocationManager()
+        locationManager?.delegate = self
+        self.locationCompletion = completion
         
         guard CLLocationManager.locationServicesEnabled() else {
             completion(.failure(LocationError.locationServicesDisabled))
@@ -18,15 +21,38 @@ import CoreLocation
             return
         }
         
+        locationManager?.desiredAccuracy = kCLLocationAccuracyBest
         locationManager?.requestLocation()
+    }
+    
+    // MARK: - CLLocationManagerDelegate
+    public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.first else { return }
+        locationCompletion?(.success(location))
+        locationCompletion = nil
         
-        // Simple implementation - in a real app you'd use proper delegation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            if let location = self.locationManager?.location {
-                completion(.success(location))
-            } else {
-                completion(.failure(LocationError.locationUnavailable))
-            }
+        // Clean up
+        locationManager?.delegate = nil
+        locationManager = nil
+    }
+    
+    public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        locationCompletion?(.failure(error))
+        locationCompletion = nil
+        
+        // Clean up
+        locationManager?.delegate = nil
+        locationManager = nil
+    }
+    
+    public func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
+        // Handle authorization changes if needed
+        switch status {
+        case .denied, .restricted:
+            locationCompletion?(.failure(LocationError.permissionDenied))
+            locationCompletion = nil
+        default:
+            break
         }
     }
 }

@@ -123,6 +123,15 @@ public class ForeGroundLocationPlugin extends Plugin {
     public void load() {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(getContext());
         
+        // Unregister existing receivers first (safety)
+        try {
+            LocalBroadcastManager.getInstance(getContext()).unregisterReceiver(locationUpdateReceiver);
+            LocalBroadcastManager.getInstance(getContext()).unregisterReceiver(serviceStatusReceiver);
+        } catch (Exception e) {
+            // Ignore if not registered
+            Log.d(TAG, "No existing receivers to unregister");
+        }
+        
         // Register broadcast receivers
         LocalBroadcastManager.getInstance(getContext()).registerReceiver(
             locationUpdateReceiver, 
@@ -132,19 +141,39 @@ public class ForeGroundLocationPlugin extends Plugin {
             serviceStatusReceiver, 
             new IntentFilter(LocationForegroundService.ACTION_SERVICE_STATUS)
         );
+        
+        Log.d(TAG, "Plugin loaded and receivers registered");
     }
 
     @Override
     protected void handleOnDestroy() {
-        // Unregister broadcast receivers
-        LocalBroadcastManager.getInstance(getContext()).unregisterReceiver(locationUpdateReceiver);
-        LocalBroadcastManager.getInstance(getContext()).unregisterReceiver(serviceStatusReceiver);
-        
-        // Unbind service
-        if (isServiceBound) {
-            getContext().unbindService(serviceConnection);
-            isServiceBound = false;
+        // Unregister broadcast receivers safely
+        try {
+            LocalBroadcastManager.getInstance(getContext()).unregisterReceiver(locationUpdateReceiver);
+        } catch (Exception e) {
+            Log.w(TAG, "Error unregistering locationUpdateReceiver", e);
         }
+        
+        try {
+            LocalBroadcastManager.getInstance(getContext()).unregisterReceiver(serviceStatusReceiver);
+        } catch (Exception e) {
+            Log.w(TAG, "Error unregistering serviceStatusReceiver", e);
+        }
+        
+        // Unbind service safely
+        if (isServiceBound) {
+            try {
+                getContext().unbindService(serviceConnection);
+                isServiceBound = false;
+                Log.d(TAG, "Service unbound successfully");
+            } catch (Exception e) {
+                Log.w(TAG, "Error unbinding service", e);
+            }
+        }
+        
+        // Clean up references
+        locationService = null;
+        fusedLocationClient = null;
         
         super.handleOnDestroy();
     }
@@ -209,7 +238,7 @@ public class ForeGroundLocationPlugin extends Plugin {
     /**
      * Start foreground location service with notification configuration
      * 
-     * Expected format (parameters sent directly):
+     * Expected format (standardized approach):
      * {
      *   "notification": {
      *     "title": "Location Tracking Active",    // REQUIRED
@@ -221,81 +250,74 @@ public class ForeGroundLocationPlugin extends Plugin {
      *   "priority": "HIGH_ACCURACY"               // OPTIONAL - location priority
      * }
      * 
-     * Alternative format (with options wrapper - for backward compatibility):
-     * {
-     *   "options": {
-     *     "notification": { ... },
-     *     "interval": 60000,
-     *     ...
-     *   }
-     * }
-     * 
-     * Common issues:
-     * - Missing notification.title or notification.text
-     * - Empty strings for title or text
-     * - Custom icon not found in drawable resources
-     * - Permissions not granted before calling this method
+     * Error codes:
+     * - PERMISSION_DENIED: Location permission not granted
+     * - INVALID_NOTIFICATION: Missing or invalid notification configuration
+     * - INVALID_PARAMETERS: Invalid interval or priority values
      */
     @PluginMethod
     public void startForegroundLocationService(PluginCall call) {
         if (getLocationPermissionState() != PermissionState.GRANTED) {
-            call.reject("Location permission required");
+            call.reject("PERMISSION_DENIED", "Location permission is required");
             return;
         }
 
-        // Get parameters directly from call data (not wrapped in options object)
-        JSObject options;
-        try {
-            // Try to get options object first (for backward compatibility)
-            options = call.getObject("options");
-            if (options == null) {
-                // If no options object, use call data directly
-                options = call.getData();
-            }
-        } catch (Exception e) {
-            // If getting options fails, use call data directly
-            options = call.getData();
-            Log.d(TAG, "Using call data directly instead of options object");
+        // Validate notification configuration
+        JSObject notification = call.getObject("notification");
+        if (notification == null) {
+            call.reject("INVALID_NOTIFICATION", "notification parameter is required");
+            return;
         }
-        
-        // Use comprehensive validation
-        if (!validateAndExtractNotification(call, options)) {
-            return; // Error already sent in validation method
-        }
-        
-        JSObject notification = options.getJSObject("notification");
+
         String title = notification.getString("title");
         String text = notification.getString("text");
+        
+        if (title == null || title.trim().isEmpty()) {
+            call.reject("INVALID_NOTIFICATION", "notification.title is required and cannot be empty");
+            return;
+        }
+        
+        if (text == null || text.trim().isEmpty()) {
+            call.reject("INVALID_NOTIFICATION", "notification.text is required and cannot be empty");
+            return;
+        }
 
         Intent serviceIntent = new Intent(getContext(), LocationForegroundService.class);
         
-        // Add configuration to intent using validated values
+        // Add notification configuration to intent
         serviceIntent.putExtra("notificationTitle", title);
         serviceIntent.putExtra("notificationText", text);
         serviceIntent.putExtra("notificationIcon", notification.getString("icon")); // Can be null
         
-        // Get interval values safely
-        long updateInterval = 60000L; // Default 60 seconds
-        if (options.has("interval")) {
-            try {
-                updateInterval = options.getLong("interval");
-            } catch (Exception e) {
-                Log.w(TAG, "Invalid interval value, using default", e);
-            }
+        // Get and validate interval values
+        long updateInterval = call.getLong("interval", 60000L); // Default 60 seconds
+        long fastestInterval = call.getLong("fastestInterval", 30000L); // Default 30 seconds
+        
+        // Validate intervals
+        if (updateInterval < 1000L) {
+            call.reject("INVALID_PARAMETERS", "interval must be at least 1000ms");
+            return;
         }
         
-        long fastestInterval = 30000L; // Default 30 seconds
-        if (options.has("fastestInterval")) {
-            try {
-                fastestInterval = options.getLong("fastestInterval");
-            } catch (Exception e) {
-                Log.w(TAG, "Invalid fastestInterval value, using default", e);
-            }
+        if (fastestInterval < 1000L) {
+            call.reject("INVALID_PARAMETERS", "fastestInterval must be at least 1000ms");
+            return;
+        }
+        
+        if (fastestInterval > updateInterval) {
+            call.reject("INVALID_PARAMETERS", "fastestInterval cannot be greater than interval");
+            return;
+        }
+        
+        String priority = call.getString("priority", "HIGH_ACCURACY");
+        if (!isValidPriority(priority)) {
+            call.reject("INVALID_PARAMETERS", "priority must be one of: HIGH_ACCURACY, BALANCED_POWER, LOW_POWER, NO_POWER");
+            return;
         }
         
         serviceIntent.putExtra("updateInterval", updateInterval);
         serviceIntent.putExtra("fastestInterval", fastestInterval);
-        serviceIntent.putExtra("priority", options.getString("priority", "HIGH_ACCURACY"));
+        serviceIntent.putExtra("priority", priority);
 
         // Start foreground service
         ContextCompat.startForegroundService(getContext(), serviceIntent);
@@ -366,22 +388,12 @@ public class ForeGroundLocationPlugin extends Plugin {
     @PluginMethod
     public void updateLocationSettings(PluginCall call) {
         if (!isServiceBound || locationService == null) {
-            call.reject("Location service is not running");
+            call.reject("SERVICE_NOT_RUNNING", "Location service is not running");
             return;
         }
 
-        // Get parameters directly from call data (support both options object and direct parameters)
-        JSObject options;
-        try {
-            options = call.getObject("options");
-            if (options == null) {
-                options = call.getData();
-            }
-        } catch (Exception e) {
-            options = call.getData();
-        }
-        
-        JSObject notification = options.getJSObject("notification");
+        // Get notification configuration directly from call
+        JSObject notification = call.getObject("notification");
         
         // Enhanced validation for notification configuration in updates
         String title = "Location Tracking"; // Default
@@ -406,26 +418,27 @@ public class ForeGroundLocationPlugin extends Plugin {
         
         Log.d(TAG, "Updating service configuration - Title: " + title + ", Text: " + text);
         
-        // Get interval values safely
-        long interval = 60000L; // Default 60 seconds
-        if (options.has("interval")) {
-            try {
-                interval = options.getLong("interval");
-            } catch (Exception e) {
-                Log.w(TAG, "Invalid interval value, using default", e);
-            }
+        // Get interval values directly from call
+        long interval = call.getLong("interval", 60000L); // Default 60 seconds
+        long fastestInterval = call.getLong("fastestInterval", 30000L); // Default 30 seconds
+        
+        // Validate intervals
+        if (interval < 1000L) {
+            call.reject("INVALID_PARAMETERS", "interval must be at least 1000ms");
+            return;
         }
         
-        long fastestInterval = 30000L; // Default 30 seconds
-        if (options.has("fastestInterval")) {
-            try {
-                fastestInterval = options.getLong("fastestInterval");
-            } catch (Exception e) {
-                Log.w(TAG, "Invalid fastestInterval value, using default", e);
-            }
+        if (fastestInterval < 1000L) {
+            call.reject("INVALID_PARAMETERS", "fastestInterval must be at least 1000ms");
+            return;
         }
         
-        String priorityStr = options.getString("priority", "HIGH_ACCURACY");
+        String priorityStr = call.getString("priority", "HIGH_ACCURACY");
+        
+        if (!isValidPriority(priorityStr)) {
+            call.reject("INVALID_PARAMETERS", "priority must be one of: HIGH_ACCURACY, BALANCED_POWER, LOW_POWER, NO_POWER");
+            return;
+        }
         
         int priority = convertPriority(priorityStr);
         
@@ -463,28 +476,18 @@ public class ForeGroundLocationPlugin extends Plugin {
         }
     }
 
-    // Helper method to safely extract notification configuration
-    private boolean validateAndExtractNotification(PluginCall call, JSObject options) {
-        if (options == null) {
-            call.reject("Options parameter is required");
-            return false;
-        }
-        
-        JSObject notification = options.getJSObject("notification");
+    // Helper method to safely extract and validate notification configuration
+    private boolean validateAndExtractNotification(PluginCall call) {
+        JSObject notification = call.getObject("notification");
         
         // Debug logging for troubleshooting
         Log.d(TAG, "validateAndExtractNotification called");
-        Log.d(TAG, "Options received: " + options.toString());
+        Log.d(TAG, "Call data received: " + call.getData().toString());
         logNotificationConfig(notification);
         
         // Enhanced validation for notification configuration
         if (notification == null) {
-            call.reject("Notification configuration is required. Please provide notification object with title and text properties.");
-            return false;
-        }
-        
-        if (notification.length() == 0) {
-            call.reject("Notification configuration cannot be empty. Please provide title and text properties.");
+            call.reject("INVALID_NOTIFICATION", "Notification configuration is required. Please provide notification object with title and text properties.");
             return false;
         }
         
@@ -493,12 +496,12 @@ public class ForeGroundLocationPlugin extends Plugin {
         String text = notification.getString("text");
         
         if (title == null || title.trim().isEmpty()) {
-            call.reject("Notification title is required in notification configuration.");
+            call.reject("INVALID_NOTIFICATION", "Notification title is required in notification configuration.");
             return false;
         }
         
         if (text == null || text.trim().isEmpty()) {
-            call.reject("Notification text is required in notification configuration.");
+            call.reject("INVALID_NOTIFICATION", "Notification text is required in notification configuration.");
             return false;
         }
         
@@ -537,5 +540,14 @@ public class ForeGroundLocationPlugin extends Plugin {
             default:
                 return com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY;
         }
+    }
+
+    private boolean isValidPriority(String priority) {
+        return priority != null && (
+            priority.equals("HIGH_ACCURACY") ||
+            priority.equals("BALANCED_POWER") ||
+            priority.equals("LOW_POWER") ||
+            priority.equals("NO_POWER")
+        );
     }
 }

@@ -46,7 +46,46 @@ public class ForeGroundLocationPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc override public func requestPermissions(_ call: CAPPluginCall) {
-        call.unimplemented("Foreground location service not fully supported on iOS. Use background location modes in iOS instead.")
+        let locationManager = CLLocationManager()
+        
+        switch locationManager.authorizationStatus {
+        case .notDetermined:
+            // For iOS, we can only request when-in-use permission
+            // Background location requires additional setup in Info.plist
+            locationManager.requestWhenInUseAuthorization()
+            
+            // Since we can't easily wait for the delegate callback in this context,
+            // we'll return the current state and recommend checking again
+            call.resolve([
+                "location": "prompt",
+                "backgroundLocation": "denied", 
+                "notifications": "denied"
+            ])
+        case .denied, .restricted:
+            call.resolve([
+                "location": "denied",
+                "backgroundLocation": "denied",
+                "notifications": "denied"
+            ])
+        case .authorizedWhenInUse:
+            call.resolve([
+                "location": "granted",
+                "backgroundLocation": "denied", // Would need always authorization
+                "notifications": "denied"
+            ])
+        case .authorizedAlways:
+            call.resolve([
+                "location": "granted",
+                "backgroundLocation": "granted",
+                "notifications": "denied"
+            ])
+        @unknown default:
+            call.resolve([
+                "location": "prompt",
+                "backgroundLocation": "denied",
+                "notifications": "denied"
+            ])
+        }
     }
 
     @objc func startForegroundLocationService(_ call: CAPPluginCall) {

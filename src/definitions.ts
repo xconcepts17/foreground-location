@@ -75,12 +75,14 @@ export interface LocationServiceOptions {
   /**
    * Update interval in milliseconds
    * @default 60000
+   * @minimum 1000
    */
   interval?: number;
 
   /**
    * Fastest update interval in milliseconds
    * @default 30000
+   * @minimum 1000
    */
   fastestInterval?: number;
 
@@ -91,11 +93,20 @@ export interface LocationServiceOptions {
   priority?: 'HIGH_ACCURACY' | 'BALANCED_POWER' | 'LOW_POWER' | 'NO_POWER';
 
   /**
-   * Notification configuration for foreground service
+   * Notification configuration for foreground service (REQUIRED)
    */
   notification: {
+    /**
+     * Notification title (REQUIRED)
+     */
     title: string;
+    /**
+     * Notification text/content (REQUIRED)
+     */
     text: string;
+    /**
+     * Optional notification icon resource name
+     */
     icon?: string;
   };
 
@@ -176,3 +187,35 @@ export interface ServiceStatus {
    */
   error?: string;
 }
+
+/**
+ * Plugin error codes for consistent error handling
+ */
+export const ERROR_CODES = {
+  /**
+   * Location permission denied or not granted
+   */
+  PERMISSION_DENIED: 'PERMISSION_DENIED',
+
+  /**
+   * Invalid notification configuration
+   */
+  INVALID_NOTIFICATION: 'INVALID_NOTIFICATION',
+
+  /**
+   * Invalid parameters provided
+   */
+  INVALID_PARAMETERS: 'INVALID_PARAMETERS',
+
+  /**
+   * Location services disabled
+   */
+  LOCATION_SERVICES_DISABLED: 'LOCATION_SERVICES_DISABLED',
+
+  /**
+   * Feature not supported on current platform
+   */
+  UNSUPPORTED_PLATFORM: 'UNSUPPORTED_PLATFORM'
+} as const;
+
+export type ErrorCode = typeof ERROR_CODES[keyof typeof ERROR_CODES];
